@@ -1,0 +1,43 @@
+# Logs und temporäre Dateien
+*.log
+*.tmp
+tmp/
+
+# Sensitive Konfigurationsdateien
+*.key
+*.pem
+*.crt
+*.p12
+id_rsa
+id_ed25519
+.env
+.env.*
+config.local.*
+
+# RustDesk generierte Schlüssel (falls lokal vorhanden)
+*.pub
+id_*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editor-Verzeichnisse
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Agent Rules (nicht in Git)
+.agents/
+.agent/
+_agents/
+_agent/
+.gemini/
