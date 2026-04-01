@@ -1,6 +1,7 @@
 # BZ RustDesk Server
 
 Selbst-gehosteter RustDesk-Relay- und ID-Server für datenschutzkonforme Remote-Desktop-Verbindungen.
+Installiert als native Binaries mit systemd (kein Docker).
 
 ## Techstack
 
@@ -8,10 +9,10 @@ Selbst-gehosteter RustDesk-Relay- und ID-Server für datenschutzkonforme Remote-
 |---|---|
 | ID-Server | RustDesk Server OSS `hbbs` |
 | Relay-Server | RustDesk Server OSS `hbbr` |
-| Prozess-Management | systemd |
+| Prozess-Management | systemd (gehärtet) |
 | Firewall | ufw |
 | SSL (optional) | Let's Encrypt via certbot |
-| Betriebssystem | Debian 12 (Bookworm) |
+| Betriebssystem | Debian 12 (Bookworm) / Ubuntu 22+ |
 
 ## Mindest-Serveranforderungen
 
@@ -20,7 +21,7 @@ Selbst-gehosteter RustDesk-Relay- und ID-Server für datenschutzkonforme Remote-
 | vCPU | 1 |
 | RAM | 1 GB |
 | Disk | 10 GB |
-| OS | Debian 12 (Bookworm) |
+| OS | Debian 12 / Ubuntu 22.04+ |
 | Netzwerk | Statische öffentliche IP empfohlen |
 
 ### Benötigte Ports
@@ -43,7 +44,7 @@ Selbst-gehosteter RustDesk-Relay- und ID-Server für datenschutzkonforme Remote-
 ### One-Line Install
 
 ```bash
-curl -sL https://raw.githubusercontent.com/michaelnid/BZ-RustDesk/main/install.sh | sudo bash
+curl -sL https://raw.githubusercontent.com/michaelnid/BZ-RustDesk/main/install.sh -o /tmp/install.sh && curl -sL https://raw.githubusercontent.com/michaelnid/BZ-RustDesk/main/uninstall.sh -o /tmp/uninstall.sh && curl -sL https://raw.githubusercontent.com/michaelnid/BZ-RustDesk/main/update.sh -o /tmp/update.sh && sudo bash /tmp/install.sh
 ```
 
 ### Manuelle Installation
@@ -55,13 +56,22 @@ sudo bash install.sh
 ```
 
 Das Script führt automatisch folgende Schritte durch:
-1. Systemvoraussetzungen prüfen
-2. Neueste RustDesk-Server-Version von GitHub laden
-3. `.deb`-Pakete für `hbbs` und `hbbr` installieren
-4. systemd-Services einrichten und starten
-5. Firewall (ufw) konfigurieren
-6. Optional: Let's Encrypt SSL-Zertifikat einrichten
-7. Public Key und Client-Konfiguration ausgeben
+1. Systemvoraussetzungen prüfen (OS, Architektur)
+2. Neueste RustDesk-Server-Version von GitHub laden (ZIP-Binaries)
+3. Binaries nach `/opt/rustdesk/` installieren
+4. Dedizierter Systembenutzer `rustdesk` anlegen (kein Login)
+5. Gehärtete systemd-Services einrichten und starten
+6. Firewall (ufw) konfigurieren
+7. Optional: Let's Encrypt SSL-Zertifikat einrichten
+8. Public Key und Client-Konfiguration ausgeben
+
+## Update
+
+```bash
+sudo bash /opt/rustdesk/update.sh
+```
+
+Prüft auf neue Versionen, lädt automatisch herunter und führt bei Fehlern einen Rollback durch.
 
 ## Deinstallation
 
@@ -69,14 +79,21 @@ Das Script führt automatisch folgende Schritte durch:
 sudo bash /opt/rustdesk/uninstall.sh
 ```
 
-Entfernt vollständig: Services, Pakete, Verzeichnisse, Benutzer, Firewall-Regeln und optional Let's Encrypt-Zertifikate.
+Entfernt vollständig: Services, Binaries, Verzeichnisse, Benutzer, Firewall-Regeln und optional Let's Encrypt-Zertifikate.
 
-## Client-Konfiguration nach der Installation
+## Client-Konfiguration
 
-Nach erfolgreicher Installation gibt das Script folgende Werte für die RustDesk-Client-Einstellung aus:
+Nach erfolgreicher Installation gibt das Script folgende Werte aus:
 
 - **ID-Server:** `<deine-domain-oder-ip>`
 - **Relay-Server:** `<deine-domain-oder-ip>`
-- **Public Key:** Wird angezeigt und liegt unter `/opt/rustdesk/*.pub`
+- **Public Key:** `/opt/rustdesk/id_ed25519.pub`
 
-Im RustDesk-Client: `Einstellungen → Netzwerk → ID/Relay Server`
+Im RustDesk-Client: `Einstellungen` > `Netzwerk` > `ID/Relay Server`
+
+## Sicherheit
+
+- Dedizierter Systembenutzer ohne Login-Shell
+- systemd-Härtung: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`
+- Firewall automatisch konfiguriert (nur benötigte Ports offen)
+- Ende-zu-Ende Verschlüsselung zwischen Clients

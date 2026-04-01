@@ -21,14 +21,13 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 echo ""
-echo -e "${RED}${BOLD}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${RED}${BOLD}║     BZ RustDesk Server - Deinstallation          ║${NC}"
-echo -e "${RED}${BOLD}╚══════════════════════════════════════════════════╝${NC}"
+echo -e "${RED}${BOLD}============================================${NC}"
+echo -e "${RED}${BOLD}  BZ RustDesk Server - Deinstallation${NC}"
+echo -e "${RED}${BOLD}============================================${NC}"
 echo ""
 echo -e "${YELLOW}Folgende Komponenten werden vollständig entfernt:${NC}"
 echo "  - systemd Services (rustdesk-hbbs, rustdesk-hbbr)"
-echo "  - Installierte .deb Pakete (hbbs, hbbr)"
-echo "  - Installationsverzeichnis /opt/rustdesk"
+echo "  - Binaries und Daten in /opt/rustdesk"
 echo "  - Systembenutzer 'rustdesk'"
 echo "  - Firewall-Regeln (RustDesk-Ports)"
 echo "  - Installations-Logs"
@@ -45,24 +44,16 @@ for SVC in rustdesk-hbbs rustdesk-hbbr; do
         log "Service '$SVC' gestoppt."
     fi
     if systemctl is-enabled --quiet "$SVC" 2>/dev/null; then
-        systemctl disable "$SVC"
+        systemctl disable "$SVC" 2>/dev/null
         log "Service '$SVC' deaktiviert."
     fi
     if [[ -f "/etc/systemd/system/$SVC.service" ]]; then
         rm -f "/etc/systemd/system/$SVC.service"
-        log "Service-Datei '/etc/systemd/system/$SVC.service' entfernt."
+        log "Service-Datei '$SVC.service' entfernt."
     fi
 done
 
 systemctl daemon-reload
-
-# .deb Pakete deinstallieren
-for PKG in rustdesk-server-hbbs rustdesk-server-hbbr rustdesk-server-utils; do
-    if dpkg -l "$PKG" &>/dev/null 2>&1; then
-        apt-get remove -y -qq "$PKG" 2>/dev/null || true
-        log "Paket '$PKG' entfernt."
-    fi
-done
 
 # Installationsverzeichnis entfernen
 if [[ -d "/opt/rustdesk" ]]; then
