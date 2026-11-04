@@ -1,0 +1,4 @@
+# Scripts laufen unter Linux - immer mit LF auschecken (auch unter Windows),
+# sonst bricht bash mit "$'\r': command not found" ab.
+* text=auto eol=lf
+*.sh text eol=lf

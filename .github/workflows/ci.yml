@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths: ["**.sh", ".github/workflows/ci.yml"]
+  pull_request:
+    paths: ["**.sh", ".github/workflows/ci.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      KEYFILE: /var/lib/rustdesk/id_ed25519
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: shellcheck -x install.sh update.sh uninstall.sh lib/common.sh
+
+      - name: Neuinstallation
+        run: |
+          sudo -E bash install.sh --yes --no-firewall
+          echo "KEY=$(sudo sha256sum "$KEYFILE" | cut -c1-64)" >> "$GITHUB_ENV"
+
+      - name: Migration einer v1-Installation (Schlüssel bleibt erhalten)
+        run: |
+          # v1-Struktur nachbilden: Daten in /opt/rustdesk, Verzeichnis gehört dem Dienst
+          sudo systemctl stop rustdesk-hbbs rustdesk-hbbr
+          sudo sh -c 'mv /var/lib/rustdesk/* /opt/rustdesk/ && chown -R rustdesk:rustdesk /opt/rustdesk'
+          sudo sed -i -e 's|^WorkingDirectory=.*|WorkingDirectory=/opt/rustdesk\nReadWritePaths=/opt/rustdesk|' \
+            -e '/^StateDirectory/d' -e 's| -k _||' /etc/systemd/system/rustdesk-hbb?.service
+          sudo systemctl daemon-reload
+          sudo systemctl start rustdesk-hbbs rustdesk-hbbr
+
+          sudo -E bash update.sh --yes --no-self-update
+          test "$(sudo sha256sum "$KEYFILE" | cut -c1-64)" = "$KEY"
+          sudo test ! -e /opt/rustdesk/id_ed25519
+          test "$(stat -c %U /opt/rustdesk)" = root
+
+      - name: Reparatur-Update und Deinstallation
+        run: |
+          sudo -E bash /opt/rustdesk/update.sh --yes --force --no-self-update
+          test "$(sudo sha256sum "$KEYFILE" | cut -c1-64)" = "$KEY"
+          systemctl is-active rustdesk-hbbs rustdesk-hbbr
+          sudo bash /opt/rustdesk/uninstall.sh --yes
+          test ! -e /opt/rustdesk
+          if id rustdesk 2>/dev/null; then exit 1; fi
+
+      - name: Diagnose
+        if: failure()
+        run: |
+          sudo journalctl -u rustdesk-hbbs -u rustdesk-hbbr --no-pager -n 50 || true
+          sudo cat /var/log/rustdesk-setup.log || true
