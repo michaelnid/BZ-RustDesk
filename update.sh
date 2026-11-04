@@ -19,6 +19,9 @@ source "$SCRIPT_DIR/lib/common.sh" || {
 ORIG_ARGS=("$@")
 SELF_UPDATE=1
 FORCE=0
+LEGACY_DOMAIN=""
+NEW_DOMAIN=""
+NEW_DOMAIN_SET=0
 LEGACY=0
 NEED_BINARIES=0
 NEED_UNITS=0
@@ -37,6 +40,8 @@ Verwendung: sudo bash update.sh [Optionen]
 
   -y, --yes          Ohne Rückfragen
   --force            Binaries und Dienste auch bei gleicher Version neu einrichten (Reparatur)
+  --domain NAME      Domain für die Client-Anzeige ändern (leer = IP-Betrieb)
+  --no-firewall      ufw nicht anfassen
   --no-self-update   Verwaltungs-Scripts nicht von GitHub aktualisieren
   -h, --help         Diese Hilfe
 EOF
@@ -47,6 +52,14 @@ parse_args() {
         case $1 in
             -y | --yes) ASSUME_YES=1 ;;
             --force) FORCE=1 ;;
+            --domain)
+                (($# >= 2)) || die "--domain benötigt einen Wert."
+                NEW_DOMAIN=$2
+                NEW_DOMAIN_SET=1
+                shift
+                ;;
+            --domain=*) NEW_DOMAIN=${1#*=}; NEW_DOMAIN_SET=1 ;;
+            --no-firewall) MANAGE_FIREWALL=0 ;;
             --no-self-update) SELF_UPDATE=0 ;;
             -h | --help) usage; exit 0 ;;
             *) die "Unbekannte Option: $1 (siehe --help)" ;;
@@ -228,42 +241,6 @@ verify_keys_unchanged() {
     log "Schlüssel geprüft: unverändert."
 }
 
-# --- Optional: Altlasten der v1-Installation (certbot, Ports 80/443) --------
-legacy_certbot_cleanup() {
-    local domain
-    domain=$(read_version_value DOMAIN)
-    domain=${domain,,}
-    [[ -n $domain ]] || return 0
-    valid_host "$domain" || return 0
-    if command -v certbot >/dev/null 2>&1 && [[ -d $LETSENCRYPT_LIVE_DIR/$domain ]]; then
-        echo
-        info "Die alte Installation hat ein Let's-Encrypt-Zertifikat für $domain angelegt."
-        info "hbbs/hbbr verwenden es nicht (Verschlüsselung läuft über das Schlüsselpaar)."
-        if ask_yes_no "Zertifikat für $domain löschen? (nur wenn es sonst nirgends genutzt wird)" n; then
-            if certbot delete --cert-name "$domain" --non-interactive >>"$LOG_FILE" 2>&1; then
-                log "Zertifikat für $domain gelöscht."
-            else
-                warn "Zertifikat konnte nicht gelöscht werden (siehe $LOG_FILE)."
-            fi
-        fi
-    fi
-    if command -v ufw >/dev/null 2>&1 && { ufw_rule_exists 80/tcp || ufw_rule_exists 443/tcp; }; then
-        if port_in_use 80 || port_in_use 443; then
-            info "Ports 80/443 sind in ufw offen und werden von einem Dienst genutzt - bleiben offen."
-        elif ask_yes_no "Ports 80/443 (von der alten Installation für Let's Encrypt geöffnet) in ufw schließen?" n; then
-            ufw delete allow 80/tcp >>"$LOG_FILE" 2>&1 || true
-            ufw delete allow 443/tcp >>"$LOG_FILE" 2>&1 || true
-            log "Ports 80/443 in ufw geschlossen."
-        fi
-    fi
-}
-
-port_in_use() {
-    local out
-    out=$(ss -Hltn "sport = :$1" 2>/dev/null || true)
-    [[ -n $out ]]
-}
-
 print_plan() {
     echo
     printf '%sGeplante Schritte:%s\n' "$BOLD" "$NC"
@@ -282,6 +259,12 @@ print_plan() {
     fi
     if ((NEED_UNITS)); then
         echo "  - systemd-Dienste aktualisieren (Härtung, Key-Pflicht auch für das Relay)"
+    fi
+    if ((MANAGE_FIREWALL)); then
+        echo "  - Nicht benötigte Firewall-Freigaben schließen (WebSocket 21118/21119)"
+        if ((LEGACY)); then
+            echo "  - Ungenutztes Let's-Encrypt-Zertifikat + Ports 80/443 entfernen (nach Rückfrage)"
+        fi
     fi
     echo "  - Dienste werden kurz neu gestartet; bei Problemen automatischer Rollback"
     echo
@@ -332,6 +315,14 @@ main() {
     DOMAIN=$(read_version_value DOMAIN)
     DOMAIN=${DOMAIN,,}
     if [[ -n $DOMAIN ]] && ! valid_host "$DOMAIN"; then DOMAIN=""; fi
+    LEGACY_DOMAIN=$DOMAIN
+    if ((NEW_DOMAIN_SET)); then
+        NEW_DOMAIN=${NEW_DOMAIN//[[:space:]]/}
+        NEW_DOMAIN=${NEW_DOMAIN,,}
+        if [[ -n $NEW_DOMAIN ]] && ! valid_host "$NEW_DOMAIN"; then die "Ungültige Domain: '$NEW_DOMAIN'"; fi
+        if [[ $NEW_DOMAIN != "$DOMAIN" ]]; then info "Domain für die Clients: '${DOMAIN:-IP}' -> '${NEW_DOMAIN:-IP}'"; fi
+        DOMAIN=$NEW_DOMAIN
+    fi
     SERVER_IP=$(read_version_value SERVER_IP)
     INSTALL_DATE=$(read_version_value INSTALL_DATE)
     info "Installierte Version: $CURRENT_VERSION"
@@ -354,6 +345,7 @@ main() {
         ensure_data_dir
         write_version_file
         backup_keys
+        remove_obsolete_firewall_rules
         if ! systemctl is-active --quiet rustdesk-hbbs || ! systemctl is-active --quiet rustdesk-hbbr; then
             warn "Mindestens ein Dienst läuft nicht. Reparatur: sudo bash $INSTALL_DIR/update.sh --force"
         fi
@@ -410,7 +402,8 @@ main() {
     if [[ -z $INSTALL_DATE ]]; then INSTALL_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ); fi
     write_version_file
     backup_keys
-    if ((LEGACY)); then legacy_certbot_cleanup; fi
+    remove_obsolete_firewall_rules
+    if ((LEGACY)); then legacy_ssl_cleanup "$LEGACY_DOMAIN"; fi
     print_summary
 }
 

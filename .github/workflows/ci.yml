@@ -3,9 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ["**.sh", ".github/workflows/ci.yml"]
+    paths: ["**.sh", "**.ps1", "**.cmd", ".github/workflows/ci.yml"]
   pull_request:
-    paths: ["**.sh", ".github/workflows/ci.yml"]
+    paths: ["**.sh", "**.ps1", "**.cmd", ".github/workflows/ci.yml"]
   workflow_dispatch:
 
 permissions:
@@ -25,15 +25,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: ShellCheck
-        run: shellcheck -x install.sh update.sh uninstall.sh lib/common.sh
-
-      - name: Neuinstallation
+      - name: Lint
         run: |
-          sudo -E bash install.sh --yes --no-firewall
+          shellcheck -x install.sh update.sh uninstall.sh deploy.sh lib/common.sh
+          pwsh -NoProfile -Command '$e = $null; [void][Management.Automation.Language.Parser]::ParseFile("$PWD/deploy.ps1", [ref]$null, [ref]$e); if ($e) { $e; exit 1 }'
+
+      - name: SSH-Zugang auf localhost (Ziel für deploy.sh)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq openssh-server
+          mkdir -p -m 700 ~/.ssh && ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ed25519
+          sudo install -d -m 700 /root/.ssh && sudo tee -a /root/.ssh/authorized_keys < ~/.ssh/id_ed25519.pub > /dev/null
+          echo 'AcceptEnv GITHUB_TOKEN' | sudo tee /etc/ssh/sshd_config.d/ci.conf > /dev/null
+          printf 'Host 127.0.0.1\n  SendEnv GITHUB_TOKEN\n' >> ~/.ssh/config
+          sudo systemctl restart ssh
+
+      - name: Neuinstallation per deploy.sh
+        run: |
+          ./deploy.sh 127.0.0.1 --yes --no-firewall
+          systemctl is-active rustdesk-hbbs rustdesk-hbbr
+          if ls -d /tmp/bz-rustdesk-deploy.* 2>/dev/null; then exit 1; fi
           echo "KEY=$(sudo sha256sum "$KEYFILE" | cut -c1-64)" >> "$GITHUB_ENV"
 
-      - name: Migration einer v1-Installation (Schlüssel bleibt erhalten)
+      - name: v1-Installation per deploy.sh migrieren (Schlüssel bleibt erhalten)
         run: |
           # v1-Struktur nachbilden: Daten in /opt/rustdesk, Verzeichnis gehört dem Dienst
           sudo systemctl stop rustdesk-hbbs rustdesk-hbbr
@@ -43,7 +56,7 @@ jobs:
           sudo systemctl daemon-reload
           sudo systemctl start rustdesk-hbbs rustdesk-hbbr
 
-          sudo -E bash update.sh --yes --no-self-update
+          ./deploy.sh 127.0.0.1 --yes --no-firewall
           test "$(sudo sha256sum "$KEYFILE" | cut -c1-64)" = "$KEY"
           sudo test ! -e /opt/rustdesk/id_ed25519
           test "$(stat -c %U /opt/rustdesk)" = root
@@ -60,5 +73,5 @@ jobs:
       - name: Diagnose
         if: failure()
         run: |
-          sudo journalctl -u rustdesk-hbbs -u rustdesk-hbbr --no-pager -n 50 || true
+          sudo journalctl -u rustdesk-hbbs -u rustdesk-hbbr -u ssh --no-pager -n 60 || true
           sudo cat /var/log/rustdesk-setup.log || true

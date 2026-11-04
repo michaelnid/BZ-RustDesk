@@ -6,7 +6,7 @@
 # ============================================================
 
 # Version der Verwaltungs-Scripts (bei jeder Änderung erhöhen)
-BZ_SCRIPT_VERSION="2.0.0"
+BZ_SCRIPT_VERSION="2.1.0"
 
 # --- Pfade -------------------------------------------------------------------
 # Programmdateien + Verwaltungs-Scripts: gehören root, für den Dienst nur lesbar.
@@ -34,18 +34,20 @@ GITHUB_API="https://api.github.com/repos/rustdesk/rustdesk-server/releases/lates
 RELEASE_URL_PREFIX="https://github.com/rustdesk/rustdesk-server/releases/download/"
 SCRIPTS_TARBALL_URL="https://github.com/michaelnid/BZ-RustDesk/archive/refs/heads/main.tar.gz"
 
-# "Port/Protokoll|Kommentar" - von install.sh angelegt, von uninstall.sh entfernt
+# "Port/Protokoll|Kommentar" - nur was RustDesk-Clients wirklich brauchen
 FIREWALL_RULES=(
     "21115/tcp|RustDesk hbbs NAT-Typ-Test"
     "21116/tcp|RustDesk hbbs ID-Server"
     "21116/udp|RustDesk hbbs ID-Server/Heartbeat"
     "21117/tcp|RustDesk hbbr Relay"
-    "21118/tcp|RustDesk hbbs WebSocket"
-    "21119/tcp|RustDesk hbbr WebSocket"
 )
+# Von älteren Versionen geöffnet, aber nicht benötigt (WebSocket nur für den Web-Client,
+# der ohne TLS ohnehin nicht funktioniert) - werden bei Update/Deinstallation entfernt.
+OBSOLETE_FIREWALL_RULES=(21118/tcp 21119/tcp)
 
 # --- Laufzeit-Status ---------------------------------------------------------
 ASSUME_YES=0          # --yes: Hauptaktion bestätigen, sonst jeweils Standardantwort
+MANAGE_FIREWALL=1     # --no-firewall: ufw wird nicht angefasst
 LOG_READY=0
 MAIN_PID=""
 FAILURE_HOOK=""       # Funktion, die bei Fehler/Abbruch ausgeführt wird (Rollback)
@@ -225,7 +227,7 @@ check_os() {
     os_name=$(. /etc/os-release && printf '%s' "${PRETTY_NAME:-${ID:-unbekannt}}")
     info "Betriebssystem: $os_name"
     if [[ $os_id != debian && $os_id != ubuntu ]]; then
-        warn "Dieses Script ist für Debian 12+ / Ubuntu 22.04+ gedacht."
+        warn "Dieses Script ist für Debian 13/12 gedacht (Ubuntu 22.04+ funktioniert ebenfalls)."
         confirm "Trotzdem fortfahren?" || die "Abgebrochen."
     fi
     command -v apt-get >/dev/null 2>&1 || die "apt-get nicht gefunden - nur Debian/Ubuntu werden unterstützt."
@@ -665,7 +667,7 @@ health_check() {
         return 1
     fi
     if ((ports_ok)); then
-        log "Dienste laufen (hbbs: 21115/21116/21118, hbbr: 21117/21119)."
+        log "Dienste laufen (hbbs: 21115/21116, hbbr: 21117)."
     else
         warn "Standard-Ports 21116/21117 nicht gefunden - abweichende Port-Konfiguration?"
     fi
@@ -792,8 +794,73 @@ list_other_listeners() {
         }' | sort -u || true
 }
 
-ufw_rule_exists() {  # $1 z.B. "80/tcp"
+ufw_rule_exists() {  # $1 z.B. "80/tcp" - auch Regeln mit Kommentar
     local added
     added=$(LC_ALL=C ufw show added 2>/dev/null || true)
-    grep -qx "ufw allow $1" <<<"$added"
+    grep -qE "^ufw allow ${1//./\\.}( |$)" <<<"$added"
+}
+
+port_in_use() {
+    local out
+    out=$(ss -Hltn "sport = :$1" 2>/dev/null || true)
+    [[ -n $out ]]
+}
+
+# Entfernt Freigaben, die ältere Versionen geöffnet haben, die RustDesk aber nicht braucht.
+remove_obsolete_firewall_rules() {
+    local rule removed=()
+    ((MANAGE_FIREWALL)) || return 0
+    command -v ufw >/dev/null 2>&1 || return 0
+    for rule in "${OBSOLETE_FIREWALL_RULES[@]}"; do
+        if ufw_rule_exists "$rule"; then
+            ufw delete allow "$rule" >/dev/null 2>&1 || true
+            removed+=("$rule")
+        fi
+    done
+    if ((${#removed[@]})); then
+        log "Nicht benötigte Firewall-Freigaben geschlossen: ${removed[*]} (WebSocket)"
+    fi
+}
+
+# Altlast der v1-Installation: Let's-Encrypt-Zertifikat + Ports 80/443 - von RustDesk nie genutzt.
+# $1 = Domain aus der alten version.txt
+legacy_ssl_cleanup() {
+    local domain=${1,,} have_cert=0 have_ports=0
+    if [[ -n $domain ]] && valid_host "$domain" && command -v certbot >/dev/null 2>&1 &&
+        [[ -d $LETSENCRYPT_LIVE_DIR/$domain ]]; then
+        have_cert=1
+    fi
+    if ((MANAGE_FIREWALL)) && command -v ufw >/dev/null 2>&1 &&
+        { ufw_rule_exists 80/tcp || ufw_rule_exists 443/tcp; }; then
+        have_ports=1
+    fi
+    ((have_cert || have_ports)) || return 0
+
+    if port_in_use 80 || port_in_use 443; then
+        info "Auf Port 80/443 läuft ein anderer Dienst - Zertifikat und Freigaben 80/443 bleiben unverändert."
+        return 0
+    fi
+    echo
+    info "Die alte Installation hat ein Let's-Encrypt-Zertifikat angelegt und die Ports 80/443 geöffnet."
+    info "RustDesk nutzt beides nicht (verschlüsselt wird über das Schlüsselpaar)."
+    ask_yes_no "Zertifikat entfernen und Ports 80/443 schließen?" j || return 0
+
+    if ((have_cert)); then
+        if certbot delete --cert-name "$domain" --non-interactive >/dev/null 2>&1; then
+            log "Zertifikat für $domain gelöscht."
+        else
+            warn "Zertifikat für $domain konnte nicht gelöscht werden."
+        fi
+        # certbot nur entfernen, wenn keine weiteren Zertifikate existieren
+        if ! compgen -G "$LETSENCRYPT_LIVE_DIR/*/" >/dev/null; then
+            if apt-get remove -y -qq certbot >/dev/null 2>&1; then
+                log "certbot entfernt (keine weiteren Zertifikate vorhanden)."
+            fi
+        fi
+    fi
+    if ((have_ports)); then
+        ufw delete allow 80/tcp >/dev/null 2>&1 || true
+        ufw delete allow 443/tcp >/dev/null 2>&1 || true
+        log "Ports 80/443 geschlossen."
+    fi
 }

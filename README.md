@@ -11,19 +11,35 @@
 
 ---
 
-## Installation
+## Deploy
+
+Vom Mac oder Windows-11-Rechner – Login per SSH-Key, Upload per SCP. Das Script erkennt selbst, ob der Server neu eingerichtet oder aktualisiert wird.
+
+```bash
+./deploy.sh 203.0.113.10          # macOS
+.\deploy.ps1 203.0.113.10         # Windows (PowerShell) – oder: deploy.cmd 203.0.113.10
+```
+
+Optionen: `-u <benutzer>` (Standard `root`, sonst per sudo) · `-p <ssh-port>` · `-i <schlüssel>` · alles Weitere geht an den Server, z. B. `--domain rd.example.com`, `--yes`, `--force`, `--no-firewall`
+
+Debian 13/12 (Ubuntu 22.04+ funktioniert ebenfalls) · amd64, arm64, armv7, i386 · ab 1 vCPU, 1 GB RAM, 10 GB Disk · Plesk Git: nein
+
+<details>
+<summary><b>Ohne Deploy direkt auf dem Server</b></summary>
+
+<br>
 
 ```bash
 d=$(mktemp -d) && curl -fsSL https://github.com/michaelnid/BZ-RustDesk/archive/refs/heads/main.tar.gz | tar -xz -C "$d" --strip-components=1 && sudo bash "$d/install.sh"
 ```
 
-Optionen: `--domain <name>` · `--no-firewall` · `--yes`
+Bei einer bestehenden Installation übergibt `install.sh` automatisch an `update.sh`.
 
-Debian 12+ / Ubuntu 22.04+ · amd64, arm64, armv7, i386 · ab 1 vCPU, 1 GB RAM, 10 GB Disk · statische IP empfohlen · Plesk Git: nein
+</details>
 
 ## Verwaltung
 
-| Aufgabe | Befehl |
+| Aufgabe | Befehl auf dem Server |
 |---|---|
 | Update | `sudo bash /opt/rustdesk/update.sh` |
 | Reparatur | `sudo bash /opt/rustdesk/update.sh --force` |
@@ -37,21 +53,15 @@ Updates prüfen die Prüfsumme, starten hbbs → hbbr, vergleichen den Schlüsse
 
 <br>
 
-Ältere Versionen speichern Schlüssel und Datenbank in `/opt/rustdesk`, und der Dienst darf dort schreiben. Einmalig die neuen Scripts ausführen:
-
-```bash
-d=$(mktemp -d) && curl -fsSL https://github.com/michaelnid/BZ-RustDesk/archive/refs/heads/main.tar.gz | tar -xz -C "$d" --strip-components=1 && sudo bash "$d/update.sh"
-```
-
-Ablauf:
+Einfach `deploy` ausführen (oder den Einzeiler oben mit `update.sh` statt `install.sh`). Die Migration läuft so ab:
 
 1. Vollständige Sicherung nach `/var/backups/rustdesk/`.
-2. Daten werden nach `/var/lib/rustdesk` **kopiert** und byteweise geprüft.
+2. Schlüssel und Datenbank werden von `/opt/rustdesk` nach `/var/lib/rustdesk` **kopiert** und byteweise geprüft.
 3. Binaries werden aus dem verifizierten Release neu installiert.
 4. Die Dienste starten mit der neuen Struktur, der Schlüssel-Hash wird verglichen.
 5. Erst dann werden die alten Kopien entfernt. Schlägt etwas fehl, wird der alte Stand wiederhergestellt.
 
-**Der Schlüssel bleibt identisch – an den Clients ändert sich nichts.** Das nicht mehr benötigte Let's-Encrypt-Zertifikat und die Ports 80/443 werden nur auf Nachfrage entfernt.
+**Der Schlüssel bleibt identisch – an den Clients ändert sich nichts.** Nicht benötigte Freigaben (WebSocket 21118/21119) werden geschlossen. Das ungenutzte Let's-Encrypt-Zertifikat und die Ports 80/443 entfernt das Update nach Rückfrage – außer ein anderer Dienst nutzt Port 80/443.
 
 </details>
 
@@ -59,16 +69,17 @@ Ablauf:
 
 `Einstellungen › Netzwerk › ID/Relay-Server`: **ID-Server** und **Relay-Server** = Domain oder IP, **Key** = Ausgabe der Installation bzw. `sudo cat /var/lib/rustdesk/id_ed25519.pub`
 
-## Ports
+## Firewall
+
+Geöffnet wird nur, was RustDesk wirklich braucht:
 
 | Port | Dienst | Zweck |
 |---|---|---|
 | 21115/tcp | hbbs | NAT-Typ-Test |
 | 21116/tcp+udp | hbbs | ID-Server, Heartbeat |
 | 21117/tcp | hbbr | Relay |
-| 21118/tcp · 21119/tcp | hbbs · hbbr | WebSocket (Web-Client, Client-Option „WebSocket“) |
 
-Die Firewall (ufw) ergänzt nur Regeln. Ist ufw aus, wird der SSH-Port erkannt und freigegeben. Laufen weitere öffentliche Dienste, wird ufw nicht automatisch eingeschaltet.
+Kein Let's Encrypt und keine Ports 80/443 – RustDesk verschlüsselt über das eigene Schlüsselpaar und nutzt keine TLS-Zertifikate. Die WebSocket-Ports 21118/21119 (nur für den Web-Client) bleiben zu. ufw ergänzt nur Regeln. Ist ufw aus, wird der SSH-Port erkannt und freigegeben. Laufen weitere öffentliche Dienste, wird ufw nicht automatisch eingeschaltet.
 
 ## Sicherheit
 
@@ -77,6 +88,7 @@ Die Firewall (ufw) ergänzt nur Regeln. Ist ufw aus, wird der SSH-Port erkannt u
 - Key-Pflicht für ID- **und** Relay-Server (`hbbr -k _`) – kein offenes Relay
 - systemd-Sandbox: keine Capabilities, `ProtectSystem=strict`, Syscall-Filter, `MemoryDenyWriteExecute` u. a.
 - Automatischer Rollback und Schlüssel-Sicherung bei jedem Update
+- Deploy nur mit SSH-Key, neue Hostkeys werden gemerkt, geänderte abgelehnt
 
 <details>
 <summary><b>Verzeichnisse &amp; Schlüssel wiederherstellen</b></summary>
