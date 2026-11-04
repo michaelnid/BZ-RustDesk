@@ -57,7 +57,9 @@ done
 [ -n "$HOST" ] || { usage; exit 1; }
 [[ $HOST =~ ^[A-Za-z0-9][A-Za-z0-9.:-]*$ ]] || die "Ungültiger Server: $HOST"
 [[ $SSH_USER =~ ^[a-z_][a-z0-9_.-]*$ ]] || die "Ungültiger Benutzer: $SSH_USER"
-[[ $PORT =~ ^[0-9]+$ ]] && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "Ungültiger Port: $PORT"
+if ! [[ $PORT =~ ^[0-9]{1,5}$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+    die "Ungültiger Port: $PORT"
+fi
 [ -z "$IDENTITY" ] || [ -f "$IDENTITY" ] || die "SSH-Schlüssel nicht gefunden: $IDENTITY"
 { command -v ssh && command -v scp; } >/dev/null 2>&1 || die "ssh/scp nicht gefunden."
 
