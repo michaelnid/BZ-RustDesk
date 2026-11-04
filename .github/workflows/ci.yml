@@ -23,7 +23,7 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
       KEYFILE: /var/lib/rustdesk/id_ed25519
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Lint
         run: |
