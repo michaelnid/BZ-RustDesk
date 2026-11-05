@@ -124,7 +124,11 @@ cleanup_tmp() {
     _TMP_PATHS=()
 }
 
-_on_exit() { cleanup_tmp; }
+_on_exit() {
+    # Cursor wieder einblenden, falls die Intro-Animation unterbrochen wurde
+    if ((_INTRO_CURSOR_HIDDEN)); then printf '\033[0m\033[?25h'; fi
+    cleanup_tmp
+}
 
 # Muss als erstes in jedem Script aufgerufen werden.
 bz_init() {
@@ -165,12 +169,105 @@ acquire_lock() {
     flock -n 9 || die "Es läuft bereits ein anderer Vorgang (Installation/Update/Deinstallation)."
 }
 
+# =============================================================================
+# Intro: michaelnid.app-Animation (nur im Terminal, einmal pro Aufruf-Kette)
+# =============================================================================
+
+_INTRO_CURSOR_HIDDEN=0
+
+# Kopfzeile bzw. Animation. $1 = Aktion (Installation, Update, Deinstallation)
 banner() {
-    printf '%s\n' "$CYAN" \
-        "  ============================================" \
-        "     BZ RustDesk Server - $1" \
-        "     Verwaltungs-Scripts v$BZ_SCRIPT_VERSION" \
-        "  ============================================" "$NC"
+    local brand="michaelnid.app" title="BZ RustDesk Server"
+    local sub="$1 - Scripts v$BZ_SCRIPT_VERSION" cols
+    cols=$(tput cols 2>/dev/null || echo 80)
+    [[ $cols =~ ^[0-9]+$ ]] || cols=80
+
+    # Ohne Terminal (CI, Log, Pipe), zu schmal, abgeschaltet oder schon gezeigt: schlichte Kopfzeile
+    if [[ ! -t 1 || ${TERM:-dumb} == dumb || -n ${BZ_NO_INTRO:-} || -n ${BZ_INTRO_SHOWN:-} ]] || ((cols < 52)); then
+        printf '\n  %s%s%s  %s\n  %s\n\n' "$BOLD$CYAN" "$brand" "$NC" "$title" "$sub"
+        return 0
+    fi
+    export BZ_INTRO_SHOWN=1
+    _intro_animation "$brand" "$title" "$sub"
+}
+
+_intro_sleep() { sleep "$1" 2>/dev/null || true; }
+
+# Cursor im Rahmen setzen - nur relative Bewegungen (überall unterstützt).
+# $1 Zeile (0 = obere Rahmenlinie, 9 = Zeile unter dem Rahmen), $2 Spalte
+_INTRO_ROW=9
+_intro_at() {
+    local delta=$(($1 - _INTRO_ROW))
+    if ((delta < 0)); then printf '\033[%dA' $((-delta)); elif ((delta > 0)); then printf '\033[%dB' "$delta"; fi
+    printf '\033[%dG' "$2"
+    _INTRO_ROW=$1
+}
+
+_intro_animation() {
+    local brand=$1 title=$2 sub=$3
+    local w=46 i k ncol hline="" pad spaced="" e=$'\033'
+    local frame grey white line_c rst=$'\033[0m'
+    local -a col=() fade=()
+
+    ncol=$(tput colors 2>/dev/null || echo 8)
+    if [[ $ncol =~ ^[0-9]+$ ]] && ((ncol >= 256)); then
+        for k in 51 50 45 44 39 38 33 69 63 99 135 141 171 177 207; do col+=("${e}[1;38;5;${k}m"); done
+        frame="${e}[38;5;238m" grey="${e}[38;5;245m" white="${e}[1;38;5;231m" line_c="${e}[38;5;39m"
+        fade=("${e}[38;5;236m" "${e}[38;5;240m" "${e}[38;5;244m" "${e}[38;5;249m" "${e}[38;5;254m")
+    else
+        col=("${e}[1;36m")
+        frame="${e}[2m" grey="${e}[0m" white="${e}[1;37m" line_c="${e}[36m"
+        fade=("${e}[2m" "${e}[0m")
+    fi
+
+    for ((i = 0; i < w; i++)); do hline+="─"; done
+    printf -v pad '%*s' "$w" ''
+    for ((i = 0; i < ${#brand}; i++)); do spaced+="${brand:i:1} "; done
+    spaced=${spaced% }
+    local bcol=$((4 + (w - ${#spaced}) / 2)) tcol=$((4 + (w - ${#title}) / 2)) scol=$((4 + (w - ${#sub}) / 2))
+
+    # Rahmen zeichnen (Cursor steht danach in Zeile 9), Cursor ausblenden
+    _INTRO_CURSOR_HIDDEN=1
+    _INTRO_ROW=9
+    printf '\033[?25l\n  %s╭%s╮%s\n' "$frame" "$hline" "$rst"
+    for ((i = 1; i <= 7; i++)); do printf '  %s│%s│%s\n' "$frame" "$pad" "$rst"; done
+    printf '  %s╰%s╯%s\n' "$frame" "$hline" "$rst"
+
+    # 1) Schriftzug Buchstabe für Buchstabe im Farbverlauf
+    for ((i = 0; i < ${#brand}; i++)); do
+        _intro_at 2 $((bcol + 2 * i))
+        printf '%s%s' "${col[i * ${#col[@]} / ${#brand}]}" "${brand:i:1}"
+        _intro_sleep 0.04
+    done
+    # 2) Linie darunter wächst von links nach rechts
+    _intro_at 3 "$bcol"
+    printf '%s' "$line_c"
+    for ((i = 0; i < ${#spaced}; i++)); do printf '─'; _intro_sleep 0.006; done
+    # 3) Titel und Aktion einblenden
+    for k in "${fade[@]}"; do
+        _intro_at 5 "$tcol"; printf '%s%s' "$k" "$title"
+        _intro_at 6 "$scol"; printf '%s%s' "$k" "$sub"
+        _intro_sleep 0.05
+    done
+    _intro_at 5 "$tcol"; printf '%s%s' "$white" "$title"
+    _intro_at 6 "$scol"; printf '%s%s' "$grey" "$sub"
+    # 4) Lichtreflex über den Schriftzug
+    for ((i = 0; i <= ${#brand}; i++)); do
+        if ((i > 0)); then
+            _intro_at 2 $((bcol + 2 * (i - 1)))
+            printf '%s%s' "${col[(i - 1) * ${#col[@]} / ${#brand}]}" "${brand:i-1:1}"
+        fi
+        if ((i < ${#brand})); then
+            _intro_at 2 $((bcol + 2 * i))
+            printf '%s%s' "$white" "${brand:i:1}"
+        fi
+        _intro_sleep 0.03
+    done
+
+    _intro_at 9 1
+    printf '%s\n\033[?25h' "$rst"
+    _INTRO_CURSOR_HIDDEN=0
+    _intro_sleep 0.2
 }
 
 # =============================================================================

@@ -73,9 +73,9 @@ main() {
     local domain svc rule
     bz_init
     parse_args "$@"
+    banner "Deinstallation"
     require_root
     acquire_lock
-    banner "Deinstallation"
 
     domain=$(read_version_value DOMAIN)
     domain=${domain,,}

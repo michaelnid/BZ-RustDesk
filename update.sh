@@ -297,10 +297,10 @@ print_summary() {
 main() {
     bz_init
     parse_args "$@"
+    banner "Update"
     require_root
     init_log "$@"
     acquire_lock
-    banner "Update"
     check_systemd
     installation_present || die "Keine Installation gefunden. Bitte install.sh verwenden."
     ensure_packages "${BASE_PACKAGES[@]}"

@@ -46,7 +46,7 @@ Bei einer bestehenden Installation übergibt `install.sh` automatisch an `update
 | Deinstallation | `sudo bash /opt/rustdesk/uninstall.sh` |
 | Status / Logs | `systemctl status rustdesk-hbbs rustdesk-hbbr` · `journalctl -u rustdesk-hbbs -u rustdesk-hbbr -f` |
 
-Updates prüfen die Prüfsumme, starten hbbs → hbbr, vergleichen den Schlüssel vorher/nachher und rollen bei jedem Fehler automatisch zurück. Die Deinstallation sichert vorher Schlüssel und Datenbank nach `/root`.
+Updates prüfen die Prüfsumme, starten hbbs → hbbr, vergleichen den Schlüssel vorher/nachher und rollen bei jedem Fehler automatisch zurück. Die Deinstallation sichert vorher Schlüssel und Datenbank nach `/root`. Die michaelnid.app-Intro-Animation erscheint nur im Terminal und lässt sich mit `BZ_NO_INTRO=1` abschalten.
 
 <details>
 <summary><b>Umstieg von älteren Installationen (vor v2.0)</b></summary>

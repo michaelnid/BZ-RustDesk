@@ -165,10 +165,10 @@ print_summary() {
 main() {
     bz_init
     parse_args "$@"
+    banner "Installation"
     require_root
     init_log "$@"
     acquire_lock
-    banner "Installation"
     check_os
     check_systemd
     detect_arch
