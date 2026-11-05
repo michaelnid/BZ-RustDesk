@@ -18,11 +18,11 @@ Verwendung: ./deploy.sh <Server-IP|Hostname> [Optionen] [Optionen für install.s
   -i, --identity DATEI  SSH-Schlüssel (Standard: ssh-agent bzw. ~/.ssh)
   -h, --help            Diese Hilfe
 
-Alle anderen Optionen (z.B. --domain, --yes, --force) gehen an install.sh/update.sh.
+Alle anderen Optionen (z.B. --yes, --force, --no-firewall) gehen an install.sh/update.sh.
 
 Beispiele:
   ./deploy.sh 203.0.113.10
-  ./deploy.sh 203.0.113.10 --domain rd.example.com
+  ./deploy.sh 203.0.113.10 --no-firewall
   ./deploy.sh rd.example.com -u admin -p 2222 --yes
 EOF
 }

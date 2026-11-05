@@ -30,7 +30,6 @@ Vom Mac oder Windows-11-Rechner – Login per SSH-Key, Upload per SCP. Das Scrip
 | `-u <benutzer>` | SSH-Benutzer (Standard `root`, andere Benutzer per sudo) |
 | `-p <port>` | SSH-Port (Standard 22) |
 | `-i <schlüssel>` | SSH-Schlüssel (Standard: ssh-agent bzw. `~/.ssh`) |
-| `--domain <name>` | Domain für die Client-Konfiguration (sonst Abfrage, leer = IP-Betrieb) |
 | `--yes` | Ohne Rückfragen, Standardantworten verwenden |
 | `--force` | Update: alles neu einrichten, auch bei gleicher Version (Reparatur) |
 | `--no-firewall` | ufw nicht anfassen (z. B. bei Provider-Firewall) |
@@ -92,7 +91,7 @@ Einfach `deploy` ausführen (oder den Einzeiler oben mit `update.sh` statt `inst
 
 ## Client
 
-`Einstellungen › Netzwerk › ID/Relay-Server`: **ID-Server** und **Relay-Server** = Domain oder IP, **Key** = Ausgabe der Installation bzw. `sudo cat /var/lib/rustdesk/id_ed25519.pub`
+`Einstellungen › Netzwerk › ID/Relay-Server`: **ID-Server** und **Relay-Server** = IP des Servers (oder ein DNS-Name, der darauf zeigt), **Key** = Ausgabe der Installation bzw. `sudo cat /var/lib/rustdesk/id_ed25519.pub`
 
 ## Firewall
 

@@ -6,7 +6,7 @@
 # ============================================================
 
 # Version der Verwaltungs-Scripts (bei jeder Änderung erhöhen)
-BZ_SCRIPT_VERSION="2.1.0"
+BZ_SCRIPT_VERSION="2.2.0"
 
 # --- Pfade -------------------------------------------------------------------
 # Programmdateien + Verwaltungs-Scripts: gehören root, für den Dienst nur lesbar.
@@ -439,7 +439,6 @@ write_version_file() {
         printf 'LAYOUT=2\n'
         printf 'INSTALL_DATE=%s\n' "${INSTALL_DATE:-}"
         printf 'UPDATE_DATE=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        printf 'DOMAIN=%s\n' "${DOMAIN:-}"
         printf 'SERVER_IP=%s\n' "${SERVER_IP:-}"
     } >"$tmp"
     chown root:root "$tmp"

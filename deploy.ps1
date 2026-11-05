@@ -7,12 +7,12 @@
     Neuinstallation oder das Update - erkannt am Zustand des Servers. Login per SSH-Key.
 
     Verwendung: .\deploy.ps1 <Server-IP|Hostname> [-u Benutzer] [-p Port] [-i Schlüssel] [Optionen für install/update]
-    Alle unbekannten Optionen (z.B. --domain, --yes) werden an install.sh/update.sh weitergereicht.
+    Alle unbekannten Optionen (z.B. --yes, --force) werden an install.sh/update.sh weitergereicht.
 
 .EXAMPLE
     .\deploy.ps1 203.0.113.10
 .EXAMPLE
-    .\deploy.ps1 203.0.113.10 --domain rd.example.com
+    .\deploy.ps1 203.0.113.10 --no-firewall
 .EXAMPLE
     .\deploy.ps1 rd.example.com -u admin -p 2222 --yes
 #>
@@ -38,11 +38,11 @@ Verwendung: .\deploy.ps1 <Server-IP|Hostname> [Optionen] [Optionen für install.
   -i, --identity DATEI  SSH-Schlüssel (Standard: ssh-agent bzw. ~\.ssh)
   -h, --help            Diese Hilfe
 
-Alle anderen Optionen (z.B. --domain, --yes, --force) gehen an install.sh/update.sh.
+Alle anderen Optionen (z.B. --yes, --force, --no-firewall) gehen an install.sh/update.sh.
 
 Beispiele:
   .\deploy.ps1 203.0.113.10
-  .\deploy.ps1 203.0.113.10 --domain rd.example.com
+  .\deploy.ps1 203.0.113.10 --no-firewall
   .\deploy.ps1 rd.example.com -u admin -p 2222 --yes
 '@
 }
