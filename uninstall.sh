@@ -73,9 +73,9 @@ main() {
     local domain svc rule
     bz_init
     parse_args "$@"
+    banner "Deinstallation"
     require_root
     acquire_lock
-    banner "Deinstallation"
 
     domain=$(read_version_value DOMAIN)
     domain=${domain,,}
@@ -132,27 +132,14 @@ main() {
         for rule in "${FIREWALL_RULES[@]}"; do
             ufw delete allow "${rule%%|*}" >/dev/null 2>&1 || true
         done
+        for rule in "${OBSOLETE_FIREWALL_RULES[@]}"; do
+            ufw delete allow "$rule" >/dev/null 2>&1 || true
+        done
         log "RustDesk-Firewall-Regeln entfernt."
     fi
 
-    # Altlasten der v1-Installation (Let's Encrypt wurde dort optional eingerichtet)
-    if [[ -n $domain ]] && valid_host "$domain" && command -v certbot >/dev/null 2>&1 &&
-        [[ -d $LETSENCRYPT_LIVE_DIR/$domain ]]; then
-        if ask_yes_no "Let's-Encrypt-Zertifikat für $domain löschen? (nur wenn sonst nicht genutzt)" n; then
-            if certbot delete --cert-name "$domain" --non-interactive >/dev/null 2>&1; then
-                log "Zertifikat für $domain gelöscht."
-            else
-                warn "Zertifikat für $domain konnte nicht gelöscht werden."
-            fi
-        fi
-    fi
-    if command -v ufw >/dev/null 2>&1 && { ufw_rule_exists 80/tcp || ufw_rule_exists 443/tcp; }; then
-        if ask_yes_no "Ports 80/443 in ufw schließen? (nur wenn dort kein Webserver läuft)" n; then
-            ufw delete allow 80/tcp >/dev/null 2>&1 || true
-            ufw delete allow 443/tcp >/dev/null 2>&1 || true
-            log "Ports 80/443 in ufw geschlossen."
-        fi
-    fi
+    # Altlast der v1-Installation: ungenutztes Zertifikat + Ports 80/443
+    legacy_ssl_cleanup "$domain"
 
     if [[ -d $BACKUP_DIR ]]; then
         if ask_yes_no "Automatische Sicherungen in $BACKUP_DIR ebenfalls löschen?" n; then

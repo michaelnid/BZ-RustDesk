@@ -1,4 +1,7 @@
-# Scripts laufen unter Linux - immer mit LF auschecken (auch unter Windows),
+# Shell-Scripts laufen unter Linux/macOS - immer mit LF auschecken (auch unter Windows),
 # sonst bricht bash mit "$'\r': command not found" ab.
 * text=auto eol=lf
 *.sh text eol=lf
+# Windows-Scripts mit CRLF (deploy.ps1 ist UTF-8 mit BOM für Windows PowerShell 5.1)
+*.ps1 text eol=crlf
+*.cmd text eol=crlf

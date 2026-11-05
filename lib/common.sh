@@ -6,7 +6,7 @@
 # ============================================================
 
 # Version der Verwaltungs-Scripts (bei jeder Änderung erhöhen)
-BZ_SCRIPT_VERSION="2.0.0"
+BZ_SCRIPT_VERSION="2.1.0"
 
 # --- Pfade -------------------------------------------------------------------
 # Programmdateien + Verwaltungs-Scripts: gehören root, für den Dienst nur lesbar.
@@ -34,18 +34,20 @@ GITHUB_API="https://api.github.com/repos/rustdesk/rustdesk-server/releases/lates
 RELEASE_URL_PREFIX="https://github.com/rustdesk/rustdesk-server/releases/download/"
 SCRIPTS_TARBALL_URL="https://github.com/michaelnid/BZ-RustDesk/archive/refs/heads/main.tar.gz"
 
-# "Port/Protokoll|Kommentar" - von install.sh angelegt, von uninstall.sh entfernt
+# "Port/Protokoll|Kommentar" - nur was RustDesk-Clients wirklich brauchen
 FIREWALL_RULES=(
     "21115/tcp|RustDesk hbbs NAT-Typ-Test"
     "21116/tcp|RustDesk hbbs ID-Server"
     "21116/udp|RustDesk hbbs ID-Server/Heartbeat"
     "21117/tcp|RustDesk hbbr Relay"
-    "21118/tcp|RustDesk hbbs WebSocket"
-    "21119/tcp|RustDesk hbbr WebSocket"
 )
+# Von älteren Versionen geöffnet, aber nicht benötigt (WebSocket nur für den Web-Client,
+# der ohne TLS ohnehin nicht funktioniert) - werden bei Update/Deinstallation entfernt.
+OBSOLETE_FIREWALL_RULES=(21118/tcp 21119/tcp)
 
 # --- Laufzeit-Status ---------------------------------------------------------
 ASSUME_YES=0          # --yes: Hauptaktion bestätigen, sonst jeweils Standardantwort
+MANAGE_FIREWALL=1     # --no-firewall: ufw wird nicht angefasst
 LOG_READY=0
 MAIN_PID=""
 FAILURE_HOOK=""       # Funktion, die bei Fehler/Abbruch ausgeführt wird (Rollback)
@@ -122,7 +124,11 @@ cleanup_tmp() {
     _TMP_PATHS=()
 }
 
-_on_exit() { cleanup_tmp; }
+_on_exit() {
+    # Cursor wieder einblenden, falls die Intro-Animation unterbrochen wurde
+    if ((_INTRO_CURSOR_HIDDEN)); then printf '\033[0m\033[?25h'; fi
+    cleanup_tmp
+}
 
 # Muss als erstes in jedem Script aufgerufen werden.
 bz_init() {
@@ -163,12 +169,105 @@ acquire_lock() {
     flock -n 9 || die "Es läuft bereits ein anderer Vorgang (Installation/Update/Deinstallation)."
 }
 
+# =============================================================================
+# Intro: michaelnid.app-Animation (nur im Terminal, einmal pro Aufruf-Kette)
+# =============================================================================
+
+_INTRO_CURSOR_HIDDEN=0
+
+# Kopfzeile bzw. Animation. $1 = Aktion (Installation, Update, Deinstallation)
 banner() {
-    printf '%s\n' "$CYAN" \
-        "  ============================================" \
-        "     BZ RustDesk Server - $1" \
-        "     Verwaltungs-Scripts v$BZ_SCRIPT_VERSION" \
-        "  ============================================" "$NC"
+    local brand="michaelnid.app" title="BZ RustDesk Server"
+    local sub="$1 - Scripts v$BZ_SCRIPT_VERSION" cols
+    cols=$(tput cols 2>/dev/null || echo 80)
+    [[ $cols =~ ^[0-9]+$ ]] || cols=80
+
+    # Ohne Terminal (CI, Log, Pipe), zu schmal, abgeschaltet oder schon gezeigt: schlichte Kopfzeile
+    if [[ ! -t 1 || ${TERM:-dumb} == dumb || -n ${BZ_NO_INTRO:-} || -n ${BZ_INTRO_SHOWN:-} ]] || ((cols < 52)); then
+        printf '\n  %s%s%s  %s\n  %s\n\n' "$BOLD$CYAN" "$brand" "$NC" "$title" "$sub"
+        return 0
+    fi
+    export BZ_INTRO_SHOWN=1
+    _intro_animation "$brand" "$title" "$sub"
+}
+
+_intro_sleep() { sleep "$1" 2>/dev/null || true; }
+
+# Cursor im Rahmen setzen - nur relative Bewegungen (überall unterstützt).
+# $1 Zeile (0 = obere Rahmenlinie, 9 = Zeile unter dem Rahmen), $2 Spalte
+_INTRO_ROW=9
+_intro_at() {
+    local delta=$(($1 - _INTRO_ROW))
+    if ((delta < 0)); then printf '\033[%dA' $((-delta)); elif ((delta > 0)); then printf '\033[%dB' "$delta"; fi
+    printf '\033[%dG' "$2"
+    _INTRO_ROW=$1
+}
+
+_intro_animation() {
+    local brand=$1 title=$2 sub=$3
+    local w=46 i k ncol hline="" pad spaced="" e=$'\033'
+    local frame grey white line_c rst=$'\033[0m'
+    local -a col=() fade=()
+
+    ncol=$(tput colors 2>/dev/null || echo 8)
+    if [[ $ncol =~ ^[0-9]+$ ]] && ((ncol >= 256)); then
+        for k in 51 50 45 44 39 38 33 69 63 99 135 141 171 177 207; do col+=("${e}[1;38;5;${k}m"); done
+        frame="${e}[38;5;238m" grey="${e}[38;5;245m" white="${e}[1;38;5;231m" line_c="${e}[38;5;39m"
+        fade=("${e}[38;5;236m" "${e}[38;5;240m" "${e}[38;5;244m" "${e}[38;5;249m" "${e}[38;5;254m")
+    else
+        col=("${e}[1;36m")
+        frame="${e}[2m" grey="${e}[0m" white="${e}[1;37m" line_c="${e}[36m"
+        fade=("${e}[2m" "${e}[0m")
+    fi
+
+    for ((i = 0; i < w; i++)); do hline+="─"; done
+    printf -v pad '%*s' "$w" ''
+    for ((i = 0; i < ${#brand}; i++)); do spaced+="${brand:i:1} "; done
+    spaced=${spaced% }
+    local bcol=$((4 + (w - ${#spaced}) / 2)) tcol=$((4 + (w - ${#title}) / 2)) scol=$((4 + (w - ${#sub}) / 2))
+
+    # Rahmen zeichnen (Cursor steht danach in Zeile 9), Cursor ausblenden
+    _INTRO_CURSOR_HIDDEN=1
+    _INTRO_ROW=9
+    printf '\033[?25l\n  %s╭%s╮%s\n' "$frame" "$hline" "$rst"
+    for ((i = 1; i <= 7; i++)); do printf '  %s│%s│%s\n' "$frame" "$pad" "$rst"; done
+    printf '  %s╰%s╯%s\n' "$frame" "$hline" "$rst"
+
+    # 1) Schriftzug Buchstabe für Buchstabe im Farbverlauf
+    for ((i = 0; i < ${#brand}; i++)); do
+        _intro_at 2 $((bcol + 2 * i))
+        printf '%s%s' "${col[i * ${#col[@]} / ${#brand}]}" "${brand:i:1}"
+        _intro_sleep 0.04
+    done
+    # 2) Linie darunter wächst von links nach rechts
+    _intro_at 3 "$bcol"
+    printf '%s' "$line_c"
+    for ((i = 0; i < ${#spaced}; i++)); do printf '─'; _intro_sleep 0.006; done
+    # 3) Titel und Aktion einblenden
+    for k in "${fade[@]}"; do
+        _intro_at 5 "$tcol"; printf '%s%s' "$k" "$title"
+        _intro_at 6 "$scol"; printf '%s%s' "$k" "$sub"
+        _intro_sleep 0.05
+    done
+    _intro_at 5 "$tcol"; printf '%s%s' "$white" "$title"
+    _intro_at 6 "$scol"; printf '%s%s' "$grey" "$sub"
+    # 4) Lichtreflex über den Schriftzug
+    for ((i = 0; i <= ${#brand}; i++)); do
+        if ((i > 0)); then
+            _intro_at 2 $((bcol + 2 * (i - 1)))
+            printf '%s%s' "${col[(i - 1) * ${#col[@]} / ${#brand}]}" "${brand:i-1:1}"
+        fi
+        if ((i < ${#brand})); then
+            _intro_at 2 $((bcol + 2 * i))
+            printf '%s%s' "$white" "${brand:i:1}"
+        fi
+        _intro_sleep 0.03
+    done
+
+    _intro_at 9 1
+    printf '%s\n\033[?25h' "$rst"
+    _INTRO_CURSOR_HIDDEN=0
+    _intro_sleep 0.2
 }
 
 # =============================================================================
@@ -225,7 +324,7 @@ check_os() {
     os_name=$(. /etc/os-release && printf '%s' "${PRETTY_NAME:-${ID:-unbekannt}}")
     info "Betriebssystem: $os_name"
     if [[ $os_id != debian && $os_id != ubuntu ]]; then
-        warn "Dieses Script ist für Debian 12+ / Ubuntu 22.04+ gedacht."
+        warn "Dieses Script ist für Debian 13/12 gedacht (Ubuntu 22.04+ funktioniert ebenfalls)."
         confirm "Trotzdem fortfahren?" || die "Abgebrochen."
     fi
     command -v apt-get >/dev/null 2>&1 || die "apt-get nicht gefunden - nur Debian/Ubuntu werden unterstützt."
@@ -665,7 +764,7 @@ health_check() {
         return 1
     fi
     if ((ports_ok)); then
-        log "Dienste laufen (hbbs: 21115/21116/21118, hbbr: 21117/21119)."
+        log "Dienste laufen (hbbs: 21115/21116, hbbr: 21117)."
     else
         warn "Standard-Ports 21116/21117 nicht gefunden - abweichende Port-Konfiguration?"
     fi
@@ -792,8 +891,73 @@ list_other_listeners() {
         }' | sort -u || true
 }
 
-ufw_rule_exists() {  # $1 z.B. "80/tcp"
+ufw_rule_exists() {  # $1 z.B. "80/tcp" - auch Regeln mit Kommentar
     local added
     added=$(LC_ALL=C ufw show added 2>/dev/null || true)
-    grep -qx "ufw allow $1" <<<"$added"
+    grep -qE "^ufw allow ${1//./\\.}( |$)" <<<"$added"
+}
+
+port_in_use() {
+    local out
+    out=$(ss -Hltn "sport = :$1" 2>/dev/null || true)
+    [[ -n $out ]]
+}
+
+# Entfernt Freigaben, die ältere Versionen geöffnet haben, die RustDesk aber nicht braucht.
+remove_obsolete_firewall_rules() {
+    local rule removed=()
+    ((MANAGE_FIREWALL)) || return 0
+    command -v ufw >/dev/null 2>&1 || return 0
+    for rule in "${OBSOLETE_FIREWALL_RULES[@]}"; do
+        if ufw_rule_exists "$rule"; then
+            ufw delete allow "$rule" >/dev/null 2>&1 || true
+            removed+=("$rule")
+        fi
+    done
+    if ((${#removed[@]})); then
+        log "Nicht benötigte Firewall-Freigaben geschlossen: ${removed[*]} (WebSocket)"
+    fi
+}
+
+# Altlast der v1-Installation: Let's-Encrypt-Zertifikat + Ports 80/443 - von RustDesk nie genutzt.
+# $1 = Domain aus der alten version.txt
+legacy_ssl_cleanup() {
+    local domain=${1,,} have_cert=0 have_ports=0
+    if [[ -n $domain ]] && valid_host "$domain" && command -v certbot >/dev/null 2>&1 &&
+        [[ -d $LETSENCRYPT_LIVE_DIR/$domain ]]; then
+        have_cert=1
+    fi
+    if ((MANAGE_FIREWALL)) && command -v ufw >/dev/null 2>&1 &&
+        { ufw_rule_exists 80/tcp || ufw_rule_exists 443/tcp; }; then
+        have_ports=1
+    fi
+    ((have_cert || have_ports)) || return 0
+
+    if port_in_use 80 || port_in_use 443; then
+        info "Auf Port 80/443 läuft ein anderer Dienst - Zertifikat und Freigaben 80/443 bleiben unverändert."
+        return 0
+    fi
+    echo
+    info "Die alte Installation hat ein Let's-Encrypt-Zertifikat angelegt und die Ports 80/443 geöffnet."
+    info "RustDesk nutzt beides nicht (verschlüsselt wird über das Schlüsselpaar)."
+    ask_yes_no "Zertifikat entfernen und Ports 80/443 schließen?" j || return 0
+
+    if ((have_cert)); then
+        if certbot delete --cert-name "$domain" --non-interactive >/dev/null 2>&1; then
+            log "Zertifikat für $domain gelöscht."
+        else
+            warn "Zertifikat für $domain konnte nicht gelöscht werden."
+        fi
+        # certbot nur entfernen, wenn keine weiteren Zertifikate existieren
+        if ! compgen -G "$LETSENCRYPT_LIVE_DIR/*/" >/dev/null; then
+            if apt-get remove -y -qq certbot >/dev/null 2>&1; then
+                log "certbot entfernt (keine weiteren Zertifikate vorhanden)."
+            fi
+        fi
+    fi
+    if ((have_ports)); then
+        ufw delete allow 80/tcp >/dev/null 2>&1 || true
+        ufw delete allow 443/tcp >/dev/null 2>&1 || true
+        log "Ports 80/443 geschlossen."
+    fi
 }

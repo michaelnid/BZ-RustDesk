@@ -2,7 +2,7 @@
 # ============================================================
 # BZ RustDesk Server - Installation
 # Methode: offizielle ZIP-Binaries (SHA-256-geprüft) + gehärtetes systemd
-# Unterstützt: Debian 12+, Ubuntu 22.04+ (amd64, arm64, armv7, i386)
+# Unterstützt: Debian 13/12 (Ubuntu 22.04+ funktioniert ebenfalls), amd64/arm64/armv7/i386
 #
 # Bei bestehender Installation wird an update.sh übergeben
 # (Update/Migration/Reparatur - Schlüssel bleiben erhalten).
@@ -17,7 +17,6 @@ source "$SCRIPT_DIR/lib/common.sh" || {
 
 DOMAIN=""
 DOMAIN_SET=0
-MANAGE_FIREWALL=1
 SERVER_IP=""
 
 usage() {
@@ -166,10 +165,10 @@ print_summary() {
 main() {
     bz_init
     parse_args "$@"
+    banner "Installation"
     require_root
     init_log "$@"
     acquire_lock
-    banner "Installation"
     check_os
     check_systemd
     detect_arch
