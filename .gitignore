@@ -41,6 +41,7 @@ $RECYCLE.BIN/
 _agents/
 _agent/
 .gemini/
+.claude/
 
 
 StandardTechstack.txt
