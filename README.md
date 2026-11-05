@@ -20,9 +20,34 @@ Vom Mac oder Windows-11-Rechner – Login per SSH-Key, Upload per SCP. Das Scrip
 .\deploy.ps1 203.0.113.10         # Windows (PowerShell) – oder: deploy.cmd 203.0.113.10
 ```
 
-Optionen: `-u <benutzer>` (Standard `root`, sonst per sudo) · `-p <ssh-port>` · `-i <schlüssel>` · alles Weitere geht an den Server, z. B. `--domain rd.example.com`, `--yes`, `--force`, `--no-firewall`
+<details>
+<summary><b>Optionen</b></summary>
+
+<br>
+
+| Option | Wirkung |
+|---|---|
+| `-u <benutzer>` | SSH-Benutzer (Standard `root`, andere Benutzer per sudo) |
+| `-p <port>` | SSH-Port (Standard 22) |
+| `-i <schlüssel>` | SSH-Schlüssel (Standard: ssh-agent bzw. `~/.ssh`) |
+| `--domain <name>` | Domain für die Client-Konfiguration (sonst Abfrage, leer = IP-Betrieb) |
+| `--yes` | Ohne Rückfragen, Standardantworten verwenden |
+| `--force` | Update: alles neu einrichten, auch bei gleicher Version (Reparatur) |
+| `--no-firewall` | ufw nicht anfassen (z. B. bei Provider-Firewall) |
+| `BZ_NO_INTRO=1` | michaelnid.app-Intro-Animation abschalten (Umgebungsvariable) |
+
+Alle Optionen außer `-u`, `-p` und `-i` gehen an `install.sh` bzw. `update.sh` auf dem Server und funktionieren dort auch direkt.
+
+</details>
+
+<details>
+<summary><b>Systemanforderungen</b></summary>
+
+<br>
 
 Debian 13/12 (Ubuntu 22.04+ funktioniert ebenfalls) · amd64, arm64, armv7, i386 · ab 1 vCPU, 1 GB RAM, 10 GB Disk · Plesk Git: nein
+
+</details>
 
 <details>
 <summary><b>Ohne Deploy direkt auf dem Server</b></summary>
@@ -46,7 +71,7 @@ Bei einer bestehenden Installation übergibt `install.sh` automatisch an `update
 | Deinstallation | `sudo bash /opt/rustdesk/uninstall.sh` |
 | Status / Logs | `systemctl status rustdesk-hbbs rustdesk-hbbr` · `journalctl -u rustdesk-hbbs -u rustdesk-hbbr -f` |
 
-Updates prüfen die Prüfsumme, starten hbbs → hbbr, vergleichen den Schlüssel vorher/nachher und rollen bei jedem Fehler automatisch zurück. Die Deinstallation sichert vorher Schlüssel und Datenbank nach `/root`. Die michaelnid.app-Intro-Animation erscheint nur im Terminal und lässt sich mit `BZ_NO_INTRO=1` abschalten.
+Updates prüfen die Prüfsumme, starten hbbs → hbbr, vergleichen den Schlüssel vorher/nachher und rollen bei jedem Fehler automatisch zurück. Die Deinstallation sichert vorher Schlüssel und Datenbank nach `/root`.
 
 <details>
 <summary><b>Umstieg von älteren Installationen (vor v2.0)</b></summary>
