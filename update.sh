@@ -20,8 +20,6 @@ ORIG_ARGS=("$@")
 SELF_UPDATE=1
 FORCE=0
 LEGACY_DOMAIN=""
-NEW_DOMAIN=""
-NEW_DOMAIN_SET=0
 LEGACY=0
 NEED_BINARIES=0
 NEED_UNITS=0
@@ -40,7 +38,6 @@ Verwendung: sudo bash update.sh [Optionen]
 
   -y, --yes          Ohne Rückfragen
   --force            Binaries und Dienste auch bei gleicher Version neu einrichten (Reparatur)
-  --domain NAME      Domain für die Client-Anzeige ändern (leer = IP-Betrieb)
   --no-firewall      ufw nicht anfassen
   --no-self-update   Verwaltungs-Scripts nicht von GitHub aktualisieren
   -h, --help         Diese Hilfe
@@ -52,13 +49,6 @@ parse_args() {
         case $1 in
             -y | --yes) ASSUME_YES=1 ;;
             --force) FORCE=1 ;;
-            --domain)
-                (($# >= 2)) || die "--domain benötigt einen Wert."
-                NEW_DOMAIN=$2
-                NEW_DOMAIN_SET=1
-                shift
-                ;;
-            --domain=*) NEW_DOMAIN=${1#*=}; NEW_DOMAIN_SET=1 ;;
             --no-firewall) MANAGE_FIREWALL=0 ;;
             --no-self-update) SELF_UPDATE=0 ;;
             -h | --help) usage; exit 0 ;;
@@ -273,7 +263,7 @@ print_plan() {
 print_summary() {
     local addr
     read_public_key
-    addr=${DOMAIN:-$SERVER_IP}
+    addr=$SERVER_IP
     echo
     printf '%s%s============================================%s\n' "$GREEN" "$BOLD" "$NC"
     printf '%s%s     Update abgeschlossen%s\n' "$GREEN" "$BOLD" "$NC"
@@ -312,17 +302,8 @@ main() {
     detect_arch
     CURRENT_VERSION=$(read_version_value RUSTDESK_VERSION)
     CURRENT_VERSION=${CURRENT_VERSION:-unbekannt}
-    DOMAIN=$(read_version_value DOMAIN)
-    DOMAIN=${DOMAIN,,}
-    if [[ -n $DOMAIN ]] && ! valid_host "$DOMAIN"; then DOMAIN=""; fi
-    LEGACY_DOMAIN=$DOMAIN
-    if ((NEW_DOMAIN_SET)); then
-        NEW_DOMAIN=${NEW_DOMAIN//[[:space:]]/}
-        NEW_DOMAIN=${NEW_DOMAIN,,}
-        if [[ -n $NEW_DOMAIN ]] && ! valid_host "$NEW_DOMAIN"; then die "Ungültige Domain: '$NEW_DOMAIN'"; fi
-        if [[ $NEW_DOMAIN != "$DOMAIN" ]]; then info "Domain für die Clients: '${DOMAIN:-IP}' -> '${NEW_DOMAIN:-IP}'"; fi
-        DOMAIN=$NEW_DOMAIN
-    fi
+    # Domain nur noch aus alten Installationen - für das Entfernen des ungenutzten Zertifikats
+    LEGACY_DOMAIN=$(read_version_value DOMAIN)
     SERVER_IP=$(read_version_value SERVER_IP)
     INSTALL_DATE=$(read_version_value INSTALL_DATE)
     info "Installierte Version: $CURRENT_VERSION"

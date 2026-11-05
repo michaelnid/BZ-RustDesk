@@ -15,15 +15,12 @@ source "$SCRIPT_DIR/lib/common.sh" || {
     exit 1
 }
 
-DOMAIN=""
-DOMAIN_SET=0
 SERVER_IP=""
 
 usage() {
     cat <<EOF
 Verwendung: sudo bash install.sh [Optionen]
 
-  --domain NAME     Domain/Hostname für die Clients (sonst Abfrage; leer = IP-Betrieb)
   --no-firewall     ufw nicht anfassen (z.B. bei Provider-Firewall oder nftables)
   -y, --yes         Ohne Rückfragen (Standardantworten verwenden)
   -h, --help        Diese Hilfe
@@ -33,13 +30,6 @@ EOF
 parse_args() {
     while (($#)); do
         case $1 in
-            --domain)
-                (($# >= 2)) || die "--domain benötigt einen Wert."
-                DOMAIN=$2
-                DOMAIN_SET=1
-                shift
-                ;;
-            --domain=*) DOMAIN=${1#*=}; DOMAIN_SET=1 ;;
             --no-firewall) MANAGE_FIREWALL=0 ;;
             -y | --yes) ASSUME_YES=1 ;;
             -h | --help) usage; exit 0 ;;
@@ -49,31 +39,9 @@ parse_args() {
     done
 }
 
-ask_config() {
-    echo
-    printf '%sKonfiguration%s\n' "$BOLD" "$NC"
-    echo "--------------------------------------------"
-    if ((!DOMAIN_SET && !ASSUME_YES)); then
-        prompt_input "Domain für die Clients (leer lassen für reinen IP-Betrieb): "
-        DOMAIN=$REPLY
-    fi
-    DOMAIN=${DOMAIN//[[:space:]]/}
-    DOMAIN=${DOMAIN,,}
-    if [[ -n $DOMAIN ]] && ! valid_host "$DOMAIN"; then
-        die "Ungültige Domain: '$DOMAIN'"
-    fi
-
+detect_server_ip() {
     SERVER_IP=$(detect_public_ip)
     info "Öffentliche IPv4: $SERVER_IP"
-
-    if [[ -n $DOMAIN && $SERVER_IP != unbekannt ]]; then
-        local resolved
-        resolved=$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)
-        if [[ " $resolved " != *" $SERVER_IP "* ]]; then
-            warn "DNS: $DOMAIN zeigt auf '${resolved% }' statt auf $SERVER_IP - DNS-Eintrag prüfen."
-        fi
-    fi
-    echo
 }
 
 configure_firewall() {
@@ -132,7 +100,8 @@ install_failed() {
 }
 
 print_summary() {
-    local addr=${DOMAIN:-$SERVER_IP}
+    local addr=$SERVER_IP
+    if [[ -z $addr || $addr == unbekannt ]]; then addr="<öffentliche IP des Servers>"; fi
     read_public_key
     echo
     printf '%s%s============================================%s\n' "$GREEN" "$BOLD" "$NC"
@@ -145,6 +114,7 @@ print_summary() {
     printf '  Relay-Server:  %s\n' "$addr"
     printf '  Key:           %s\n' "${PUBLIC_KEY:-sudo cat $DATA_DIR/id_ed25519.pub}"
     echo
+    echo "  Statt der IP kann im Client auch ein DNS-Name stehen, der auf diese IP zeigt."
     echo "  Der Key wird von ID- UND Relay-Server erzwungen - Clients ohne Key werden abgewiesen."
     echo
     printf '%sDateien:%s\n' "$BOLD" "$NC"
@@ -185,7 +155,7 @@ main() {
         die "Abgebrochen - bestehende Installation wurde nicht verändert."
     fi
 
-    ask_config
+    detect_server_ip
     ensure_packages "${BASE_PACKAGES[@]}"
     fetch_release_info
     download_release
